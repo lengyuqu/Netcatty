@@ -7,6 +7,9 @@ const {
   clearTerminalDataSession,
   createTerminalDataBacklog,
   createTerminalDataDispatcher,
+  MAX_CLOSED_TERMINAL_DATA_SESSIONS,
+  markClosedTerminalDataSession,
+  reopenTerminalDataSession,
 } = require("./preload/terminalDataBacklog.cjs");
 
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
@@ -1418,6 +1421,38 @@ test("closeSession clears terminal data state and waits for close acknowledgemen
   assert.deepEqual(invoked, [
     { channel: "netcatty:close:await", payload: { sessionId: "session-1" } },
   ]);
+});
+
+test("closed terminal session tracking survives high churn until sessions explicitly reopen", () => {
+  const closedSessions = new Set();
+  for (let index = 0; index < 250; index += 1) {
+    markClosedTerminalDataSession(closedSessions, `session-${index}`);
+  }
+
+  assert.equal(closedSessions.size, 250);
+  assert.equal(closedSessions.has("session-0"), true);
+  reopenTerminalDataSession(closedSessions, "session-0");
+  assert.equal(closedSessions.size, 249);
+  assert.equal(closedSessions.has("session-0"), false);
+});
+
+test("closed terminal session tracking remains bounded without time-based expiry", () => {
+  const closedSessions = new Set();
+  for (let index = 0; index <= MAX_CLOSED_TERMINAL_DATA_SESSIONS; index += 1) {
+    markClosedTerminalDataSession(closedSessions, `session-${index}`);
+  }
+
+  assert.equal(closedSessions.size, MAX_CLOSED_TERMINAL_DATA_SESSIONS);
+  assert.equal(closedSessions.has("session-0"), false);
+  assert.equal(closedSessions.has(`session-${MAX_CLOSED_TERMINAL_DATA_SESSIONS}`), true);
+});
+
+test("reopening a terminal clears its closed marker", () => {
+  const closedSessions = new Set();
+  markClosedTerminalDataSession(closedSessions, "session-reopened");
+  reopenTerminalDataSession(closedSessions, "session-reopened");
+
+  assert.equal(closedSessions.has("session-reopened"), false);
 });
 
 test("closeSession falls back to fire-and-forget close when acknowledgement is unavailable", async () => {

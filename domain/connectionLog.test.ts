@@ -5,10 +5,12 @@ import type { ConnectionLog } from "./models.ts";
 import { selectConnectionLogForTerminalDataCapture } from "./connectionLog.ts";
 import {
   MAX_PERSISTED_UNSAVED_TERMINAL_DATA_ENTRIES,
+  MAX_RETAINED_UNSAVED_CONNECTION_LOGS,
   mergeConnectionLogsFromStorage,
   mergeTerminalDataIntoLogs,
   mergeTerminalDataMapsForStorage,
   pruneTerminalDataMapForStorage,
+  retainConnectionLogs,
 } from "./connectionLogTerminalData.ts";
 
 const baseLog: ConnectionLog = {
@@ -41,6 +43,60 @@ test("selectConnectionLogForTerminalDataCapture picks the active log for a norma
     )?.id,
     "active",
   );
+});
+
+test("retainConnectionLogs preserves saved logs and caps only unsaved history", () => {
+  const saved = Array.from(
+    { length: 1_005 },
+    (_, index) => ({
+      ...baseLog,
+      id: `saved-${index}`,
+      saved: true,
+      startTime: 10_000 - index,
+    }),
+  );
+  const unsaved = Array.from(
+    { length: MAX_RETAINED_UNSAVED_CONNECTION_LOGS + 5 },
+    (_, index) => ({
+      ...baseLog,
+      id: `unsaved-${index}`,
+      startTime: 20_000 - index,
+    }),
+  );
+
+  const retained = retainConnectionLogs([...saved, ...unsaved]);
+  assert.equal(
+    retained.filter(log => log.saved).length,
+    saved.length,
+  );
+  assert.equal(
+    retained.filter(log => !log.saved).length,
+    MAX_RETAINED_UNSAVED_CONNECTION_LOGS,
+  );
+  assert.equal(retained.some(log => log.id === "saved-1004"), true);
+  assert.equal(retained.some(log => log.id === "unsaved-504"), false);
+});
+
+test("retainConnectionLogs never evicts an older saved log", () => {
+  const saved = Array.from(
+    { length: 1_000 },
+    (_, index) => ({
+      ...baseLog,
+      id: `saved-${index}`,
+      saved: true,
+      startTime: 10_000 - index,
+    }),
+  );
+  const newlySaved = {
+    ...baseLog,
+    id: "newly-saved",
+    saved: true,
+    startTime: 1,
+  };
+
+  const retained = retainConnectionLogs([...saved, newlySaved]);
+  assert.equal(retained.some(log => log.id === newlySaved.id), true);
+  assert.equal(retained.filter(log => log.saved).length, saved.length + 1);
 });
 
 test("selectConnectionLogForTerminalDataCapture reuses the latest log for repeated captures after reconnect", () => {

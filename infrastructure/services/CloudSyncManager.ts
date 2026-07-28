@@ -1000,6 +1000,7 @@ export class CloudSyncManager {
     this.stopAutoSync();
     this.lock();
     this.eventListeners.clear();
+    this.stateChangeListeners.clear();
     this.adapters.clear();
     if (this.hasStorageListener && typeof window !== 'undefined') {
       window.removeEventListener('storage', this.handleStorageEvent);

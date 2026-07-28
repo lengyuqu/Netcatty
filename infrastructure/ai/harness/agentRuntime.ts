@@ -75,6 +75,7 @@ export class AgentRuntime {
     this.traceStore.clear(chatSessionId);
     globalTwoPassCompactionCache.clear(chatSessionId);
     globalTerminalMonitorGuard.clearPrefix(`${chatSessionId}:`);
+    this.traceStore.clear(chatSessionId);
   }
 
   clearTerminalSession(terminalSessionId: string): void {

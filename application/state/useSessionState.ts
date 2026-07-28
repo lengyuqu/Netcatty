@@ -198,6 +198,8 @@ export function buildCopiedWorkspace(
   return { newSessions, newWorkspace };
 }
 
+const MAX_LOG_VIEWS = 10;
+
 export const useSessionState = ({
   persistSessionRestore = true,
 }: {
@@ -529,6 +531,12 @@ export const useSessionState = ({
       }
 
       return remainingWorkspaces;
+    });
+    setBroadcastWorkspaceIds(prev => {
+      if (!prev.has(workspaceId)) return prev;
+      const next = new Set(prev);
+      next.delete(workspaceId);
+      return next;
     });
   }, [setActiveTabId]);
 
@@ -1051,7 +1059,10 @@ export const useSessionState = ({
 
   const openLogView = useCallback((log: ConnectionLog) => {
     const tabId = getLogViewTabId(log);
-    setLogViews(prev => addLogView(prev, log));
+    setLogViews(prev => {
+      const next = addLogView(prev, log);
+      return next.length > MAX_LOG_VIEWS ? next.slice(next.length - MAX_LOG_VIEWS) : next;
+    });
     setActiveTabId(tabId);
   }, [setActiveTabId]);
 

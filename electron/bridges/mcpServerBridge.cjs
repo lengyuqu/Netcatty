@@ -1941,6 +1941,7 @@ const configAndCleanupApi = createConfigAndCleanupApi({
   get authToken() { return authToken; },
   get permissionMode() { return permissionMode; },
   process, existsSync, path, __dirname, toUnpackedAsarPath, DEBUG_MCP,
+  getCommandTimeoutMs,
   getScopedSessionIds, scopedMetadata, scopedAttachments, cancelledChatSessions, cancelBackgroundJobsForSession,
   cancelWorkerBackgroundJobsForSession,
   cancelWorkerBackgroundJobsForTerminalSession,

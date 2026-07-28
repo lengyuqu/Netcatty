@@ -302,6 +302,7 @@ export const ProviderCard: React.FC<ProviderCardProps> = ({
     extraActions,
 }) => {
     const { t } = useI18n();
+
     const formatLastSyncLabel = (timestamp?: number): string => {
         if (!timestamp) return t('cloudSync.lastSync.never');
         const now = Date.now();

@@ -51,12 +51,14 @@ import {
   STORAGE_KEY_TERM_SETTINGS,
 } from "../../infrastructure/config/storageKeys";
 import { localStorageAdapter, LOCAL_STORAGE_ADAPTER_CHANGED_EVENT } from "../../infrastructure/persistence/localStorageAdapter";
+import { pruneDeletedSnippetVariables } from "../../infrastructure/persistence/snippetVariableValuesStorage";
 import { mergeGlobalHistoryOnAppend, sanitizeGlobalHistoryEntries } from "../../domain/globalHistory";
 import {
   buildTerminalDataMapFromLogs,
   mergeConnectionLogsFromStorage,
   mergeTerminalDataIntoLogs,
   mergeTerminalDataMapsForStorage,
+  retainConnectionLogs,
   type ConnectionLogTerminalDataMap,
 } from "../../domain/connectionLogTerminalData";
 import { getNextVaultOrder, normalizeVaultOrder } from "../../domain/vaultOrder";
@@ -429,7 +431,9 @@ export const useVaultState = () => {
     terminalDataMap: ConnectionLogTerminalDataMap,
   ) => {
     connectionLogTerminalDataRef.current = terminalDataMap;
-    return mergeConnectionLogsFromStorage(prev, storedLogs, terminalDataMap);
+    return retainConnectionLogs(
+      mergeConnectionLogsFromStorage(prev, storedLogs, terminalDataMap),
+    );
   }, []);
 
   const updateHosts = useCallback((data: Host[] | ((prev: Host[]) => Host[])) => {
@@ -852,13 +856,7 @@ export const useVaultState = () => {
         id: crypto.randomUUID(),
       };
       setConnectionLogs((prev) => {
-        // Keep only the last 500 non-saved entries plus all saved entries
-        const savedLogs = prev.filter((l) => l.saved);
-        const unsavedLogs = prev.filter((l) => !l.saved);
-        const updated = [newLog, ...unsavedLogs].slice(0, 500);
-        const final = [...updated, ...savedLogs].sort(
-          (a, b) => b.startTime - a.startTime
-        );
+        const final = retainConnectionLogs([newLog, ...prev]);
         persistConnectionLogState(final, { pruneMainBlob: true });
         return final;
       });
@@ -870,8 +868,8 @@ export const useVaultState = () => {
   const updateConnectionLog = useCallback(
     (id: string, updates: Partial<ConnectionLog>) => {
       setConnectionLogs((prev) => {
-        const updated = prev.map((log) =>
-          log.id === id ? { ...log, ...updates } : log
+        const updated = retainConnectionLogs(
+          prev.map((log) => log.id === id ? { ...log, ...updates } : log),
         );
         persistConnectionLogState(updated, { pruneMainBlob: true });
         return updated;
@@ -882,10 +880,10 @@ export const useVaultState = () => {
 
   const toggleConnectionLogSaved = useCallback((id: string) => {
     setConnectionLogs((prev) => {
-      const updated = prev.map((log) =>
-        log.id === id ? { ...log, saved: !log.saved } : log
+      const updated = retainConnectionLogs(
+        prev.map((log) => log.id === id ? { ...log, saved: !log.saved } : log),
       );
-      persistConnectionLogState(updated, { pruneMainBlob: false });
+      persistConnectionLogState(updated, { pruneMainBlob: true });
       return updated;
     });
   }, [persistConnectionLogState]);
@@ -903,7 +901,7 @@ export const useVaultState = () => {
 
   const clearUnsavedConnectionLogs = useCallback(() => {
     setConnectionLogs((prev) => {
-      const saved = prev.filter((log) => log.saved);
+      const saved = retainConnectionLogs(prev.filter((log) => log.saved));
       persistConnectionLogState(saved, { pruneMainBlob: true });
       return saved;
     });
@@ -1068,6 +1066,7 @@ export const useVaultState = () => {
           const orderedSnippets = normalizeVaultOrder(savedSnippets);
           setSnippets(orderedSnippets);
           localStorageAdapter.write(STORAGE_KEY_SNIPPETS, orderedSnippets);
+          pruneDeletedSnippetVariables(orderedSnippets.map((s) => s.id));
         }
         else updateSnippets(INITIAL_SNIPPETS);
 
@@ -1116,7 +1115,13 @@ export const useVaultState = () => {
         const terminalDataMap = readConnectionLogTerminalDataMap();
         connectionLogTerminalDataRef.current = terminalDataMap;
         if (savedConnectionLogs) {
-          setConnectionLogs(mergeTerminalDataIntoLogs(savedConnectionLogs, terminalDataMap));
+          const retainedLogs = retainConnectionLogs(
+            mergeTerminalDataIntoLogs(savedConnectionLogs, terminalDataMap),
+          );
+          setConnectionLogs(retainedLogs);
+          if (retainedLogs.length !== savedConnectionLogs.length) {
+            persistConnectionLogState(retainedLogs, { pruneMainBlob: true });
+          }
         }
 
         // Load managed sources
@@ -1146,7 +1151,7 @@ export const useVaultState = () => {
     };
 
     init();
-  }, [updateHosts, updateSnippets]);
+  }, [persistConnectionLogState, updateHosts, updateSnippets]);
 
   useEffect(() => {
     if (!isInitialized) return;
@@ -1308,7 +1313,9 @@ export const useVaultState = () => {
       if (key === STORAGE_KEY_CONNECTION_LOG_TERMINAL_DATA) {
         const next = safeParse<ConnectionLogTerminalDataMap>(event.newValue) ?? {};
         connectionLogTerminalDataRef.current = next;
-        setConnectionLogs((prev) => mergeConnectionLogsFromStorage(prev, prev, next));
+        setConnectionLogs((prev) => retainConnectionLogs(
+          mergeConnectionLogsFromStorage(prev, prev, next),
+        ));
         return;
       }
 
@@ -1343,7 +1350,9 @@ export const useVaultState = () => {
       if (key === STORAGE_KEY_CONNECTION_LOG_TERMINAL_DATA) {
         const next = readConnectionLogTerminalDataMap();
         connectionLogTerminalDataRef.current = next;
-        setConnectionLogs((prev) => mergeConnectionLogsFromStorage(prev, prev, next));
+        setConnectionLogs((prev) => retainConnectionLogs(
+          mergeConnectionLogsFromStorage(prev, prev, next),
+        ));
       }
     };
 

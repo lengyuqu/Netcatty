@@ -114,9 +114,18 @@ function guardWriteOperation(command, { skipBlocklist = false } = {}) {
 }
 
 let tcpSocket = null;
-let pendingRequests = new Map(); // id -> { resolve, reject }
+let pendingRequests = new Map(); // id -> { resolve, reject, timer }
 let nextRpcId = 1;
 let tcpBuffer = "";
+
+// RPC timeout in milliseconds. Configurable via NETCATTY_MCP_RPC_TIMEOUT_MS env var
+// (set by main process from Settings → AI → Safety → Command Timeout).
+const RPC_TIMEOUT_MS = (() => {
+  const raw = parseInt(process.env.NETCATTY_MCP_RPC_TIMEOUT_MS, 10);
+  // Minimum 5 s to avoid pathological values; cap at 24 h.
+  if (Number.isFinite(raw) && raw >= 5000 && raw <= 86_400_000) return raw;
+  return 30_000; // default 30 s
+})();
 
 function connectTcp() {
   return new Promise((resolve, reject) => {
@@ -147,8 +156,9 @@ function connectTcp() {
             keys: msg ? Object.keys(msg) : [],
           });
           if (msg.id != null && pendingRequests.has(msg.id)) {
-            const { resolve: res, reject: rej } = pendingRequests.get(msg.id);
+            const { resolve: res, reject: rej, timer } = pendingRequests.get(msg.id);
             pendingRequests.delete(msg.id);
+            clearTimeout(timer);
             if (msg.error) {
               rej(new Error(msg.error.message || JSON.stringify(msg.error)));
             } else {
@@ -163,16 +173,18 @@ function connectTcp() {
     sock.on("error", (err) => {
       debugLog("TCP socket error", { message: err?.message || String(err) });
       reject(err);
-      // Reject all pending
-      for (const { reject: rej } of pendingRequests.values()) {
+      // Reject all pending and clear timers
+      for (const { reject: rej, timer } of pendingRequests.values()) {
+        clearTimeout(timer);
         rej(new Error("TCP connection lost"));
       }
       pendingRequests.clear();
     });
     sock.on("close", () => {
       debugLog("TCP socket closed");
-      // Reject all pending requests on clean close
-      for (const { reject: rej } of pendingRequests.values()) {
+      // Reject all pending requests on clean close and clear timers
+      for (const { reject: rej, timer } of pendingRequests.values()) {
+        clearTimeout(timer);
         rej(new Error("TCP connection closed"));
       }
       pendingRequests.clear();
@@ -187,9 +199,13 @@ function rpcCall(method, params) {
       return reject(new Error("Not connected to Netcatty"));
     }
     const id = nextRpcId++;
-    pendingRequests.set(id, { resolve, reject });
+    const timer = setTimeout(() => {
+      pendingRequests.delete(id);
+      reject(new Error(`RPC call "${method}" timed out after ${RPC_TIMEOUT_MS}ms`));
+    }, RPC_TIMEOUT_MS);
+    pendingRequests.set(id, { resolve, reject, timer });
     const msg = JSON.stringify({ jsonrpc: "2.0", id, method, params }) + "\n";
-    debugLog("rpcCall", { id, method, params });
+    debugLog("rpcCall", { id, method, params, timeoutMs: RPC_TIMEOUT_MS });
     tcpSocket.write(msg);
   });
 }

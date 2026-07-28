@@ -79,6 +79,8 @@ export function extractPrimaryFamily(familyCssString: string): string {
  */
 export function setSystemFamilies(families: Set<string> | null): void {
   systemFamilies = families;
+  // Canvas fallback cache is no longer needed once authoritative data arrives.
+  if (families !== null) cache.clear();
   availabilityVersion += 1;
   for (const listener of listeners) listener();
 }
@@ -186,4 +188,9 @@ export function clearFontAvailabilityCache(): void {
   systemFamilies = null;
   availabilityVersion += 1;
   for (const listener of listeners) listener();
+}
+
+/** @internal Exposed for testing only. */
+export function getCanvasCacheSize(): number {
+  return cache.size;
 }

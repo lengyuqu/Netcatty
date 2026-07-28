@@ -24,6 +24,8 @@ class CustomThemeStore {
     private listeners = new Set<Listener>();
     /** Cached merged array for stable useSyncExternalStore snapshots */
     private cachedAllThemes: TerminalTheme[] | null = null;
+    /** Unsubscribe handle for the cross-window IPC listener */
+    private crossWindowUnsubscribe?: () => void;
 
     constructor() {
         this.loadFromStorage();
@@ -70,8 +72,10 @@ class CustomThemeStore {
 
     /** Listen for changes from other windows and reload */
     private setupCrossWindowSync = () => {
+        // Cancel any previous listener before registering a new one
+        this.crossWindowUnsubscribe?.();
         try {
-            getBridge()?.onSettingsChanged?.((payload) => {
+            this.crossWindowUnsubscribe = getBridge()?.onSettingsChanged?.((payload) => {
                 if (payload.key === STORAGE_KEY_CUSTOM_THEMES) {
                     // Another window changed custom themes — reload from localStorage
                     this.loadFromStorage();
@@ -80,6 +84,13 @@ class CustomThemeStore {
         } catch {
             // not in Electron or bridge unavailable
         }
+    };
+
+    /** Tear down cross-window listener and all subscribers */
+    dispose = () => {
+        this.crossWindowUnsubscribe?.();
+        this.crossWindowUnsubscribe = undefined;
+        this.listeners.clear();
     };
 
     subscribe = (listener: Listener): (() => void) => {

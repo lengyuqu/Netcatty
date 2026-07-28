@@ -818,6 +818,11 @@ function registerSdkStreamHandlers(ctx) {
           sdkActiveStreams.delete(requestId);
           sdkRequestSessions.delete(requestId);
           sdkRequestRuntimes.delete(requestId);
+          // The renderer clears elicitation cards when its turn driver settles,
+          // so any elicitation still pending for this chat is unanswerable.
+          // Resolve it as cancel so the pending map cannot leak (e.g. a stream
+          // error closed the V2 session mid-elicitation without closeForChat).
+          codebuddySessionManager.cancelElicitationsForChat(chatSessionId);
         }
       },
     );
@@ -1013,6 +1018,10 @@ function registerSdkStreamHandlers(ctx) {
       mcpServerBridge.cancelPtyExecsForSession(effectiveChatSessionId);
       mcpServerBridge.cancelWorkerBackgroundJobsForSession?.(effectiveChatSessionId);
       mcpServerBridge.clearPendingApprovals(effectiveChatSessionId);
+      // Mirror clearPendingApprovals for CodeBuddy elicitations: the renderer
+      // discards their cards on turn teardown, so resolve pendings as cancel
+      // now instead of waiting for interrupt to (maybe) abort them.
+      codebuddySessionManager.cancelElicitationsForChat(effectiveChatSessionId);
       void mcpServerBridge.cancelSftpOpsForSession?.(effectiveChatSessionId);
       await codexAppServerRuntime.cancelTurn(requestId);
       const controller = sdkActiveStreams.get(requestId);

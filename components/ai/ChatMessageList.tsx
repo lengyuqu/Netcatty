@@ -357,6 +357,9 @@ const ChatMessageList: React.FC<ChatMessageListProps> = ({
 
   useEffect(() => {
     setRenderedTailCount(MESSAGE_RENDER_BATCH);
+    // Resolved state only decorates the currently rendered session. Pending
+    // interactions are global and must survive switching away and back.
+    setResolvedApprovals(new Map());
   }, [activeSessionId]);
 
   const visibleMessages = useMemo(

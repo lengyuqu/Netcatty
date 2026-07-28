@@ -9,6 +9,11 @@ import { publishScriptRunsSnapshot } from './scriptRunsStore.ts';
 
 type RunsListener = (runs: ScriptRun[]) => void;
 
+/** Maximum number of completed/failed runs to retain. */
+const MAX_COMPLETED_RUNS = 100;
+/** Completed/failed runs older than this are eligible for pruning. */
+const COMPLETED_RUN_MAX_AGE_MS = 60 * 60 * 1000; // 1 hour
+
 let runs: ScriptRun[] = [];
 const runsListeners = new Set<RunsListener>();
 
@@ -33,9 +38,9 @@ export function getScriptRuns(): readonly ScriptRun[] {
 }
 
 export function setScriptRuns(nextRuns: ScriptRun[]) {
-  runs = nextRuns;
+  runs = pruneCompletedRuns(nextRuns);
   // Keep the panel-facing store in lockstep so Scripts UI and overlays share one source.
-  publishScriptRunsSnapshot(nextRuns);
+  publishScriptRunsSnapshot(runs);
   runsListeners.forEach((listener) => listener(runs));
 }
 
@@ -76,6 +81,37 @@ export function selectScriptOverlayRun(
   return latestRun;
 }
 
+/**
+ * Remove completed/failed runs that exceed age or count limits.
+ * Keeps active (running/paused) runs untouched.
+ */
+export function pruneCompletedRuns(input: ScriptRun[] = runs): ScriptRun[] {
+  const now = Date.now();
+  const active: ScriptRun[] = [];
+  const completed: ScriptRun[] = [];
+
+  for (const run of input) {
+    if (TERMINAL_SCRIPT_STATUSES.has(run.status)) {
+      completed.push(run);
+    } else {
+      active.push(run);
+    }
+  }
+
+  // Filter out runs that exceeded the max age
+  const recentCompleted = completed.filter(
+    (run) => run.endedAt !== undefined && (now - run.endedAt) <= COMPLETED_RUN_MAX_AGE_MS,
+  );
+
+  // If still over the count limit, keep only the most recent ones
+  if (recentCompleted.length > MAX_COMPLETED_RUNS) {
+    recentCompleted.sort((a, b) => (b.endedAt ?? 0) - (a.endedAt ?? 0));
+    recentCompleted.length = MAX_COMPLETED_RUNS;
+  }
+
+  return [...active, ...recentCompleted];
+}
+
 export function getActiveScriptRunForSession(sessionId: string): ScriptRun | undefined {
   return runs.find((run) =>
     run.sessionId === sessionId && (run.status === 'running' || run.status === 'paused'),
@@ -114,8 +150,6 @@ export async function runAutomationScript(params: {
     sessionMeta: params.sessionMeta,
   });
 }
-
-const TERMINAL_SCRIPT_STATUSES = new Set<ScriptRun['status']>(['completed', 'failed']);
 
 export function waitForScriptRun(
   runId: string,

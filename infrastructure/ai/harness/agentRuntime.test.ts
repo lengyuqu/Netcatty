@@ -199,6 +199,67 @@ test('AgentRuntime keeps terminal output when session close reports failure', as
   assert.ok(store.get(handle.id, 'chat-close-failed'));
 });
 
+test('AgentRuntime keeps terminal-close tombstones for late tool output', async () => {
+  class SuccessfulCloseDriver implements TurnDriver {
+    readonly backend = 'external-sdk' as const;
+    async run(_input: TurnInput, ctx: TurnDriverContext): Promise<void> {
+      ctx.emit({
+        id: 'close-call',
+        type: 'tool_call',
+        toolCallId: 'close-1',
+        toolName: 'session_close',
+        args: { sessionId: 'terminal-closed' },
+      } as import('./types').AgentEvent);
+      ctx.emit({
+        id: 'close-result',
+        type: 'tool_result',
+        toolCallId: 'close-1',
+        result: JSON.stringify({ ok: true }),
+        isError: false,
+      } as import('./types').AgentEvent);
+    }
+    abort(): void {}
+  }
+
+  const runtime = new AgentRuntime({ drivers: [new SuccessfulCloseDriver()] });
+  await runtime.runTurn({
+    backend: 'external-sdk',
+    chatSessionId: 'chat-close-success',
+    sendScopeKey: 'chat-close-success',
+    userText: 'close it',
+    signal: new AbortController().signal,
+    currentSession: undefined,
+    assistantMsgId: 'assistant-close-success',
+    context: {
+      activeProvider: undefined,
+      activeModelId: '',
+      scopeType: 'terminal',
+      globalPermissionMode: 'confirm',
+      terminalSessions: [],
+      autoTitleSession: () => {},
+    },
+    maxIterations: 5,
+    ui: {
+      addMessageToSession: () => {},
+      updateLastMessage: () => {},
+      updateMessageById: () => {},
+      reportStreamError: () => {},
+      setStreamingForScope: () => {},
+    },
+  });
+
+  const store = runtime.getToolOutputStore('chat-close-success');
+  const lateHandle = store.store({
+    chatSessionId: 'chat-close-success',
+    capabilityId: 'terminal.execute',
+    sessionId: 'terminal-closed',
+    content: 'late output',
+  });
+
+  assert.equal(lateHandle.evicted, true);
+  assert.equal(store.listPendingHandles('chat-close-success').length, 0);
+});
+
 test('AgentRuntime redacts secrets before trace and listener fan-out', async () => {
   class SecretDriver implements TurnDriver {
     readonly backend = 'catty' as const;

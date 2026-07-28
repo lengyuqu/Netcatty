@@ -526,4 +526,14 @@ test("Codex approval render plan preserves every approval for the same item", ()
     plan.standalone.map(({ approvalId }) => approvalId),
     ["approval-3"],
   );
+
+  const otherSessionPlan = buildCodexApprovalRenderPlan(
+    pendingApprovals,
+    new Set(["item-1"]),
+    "chat-2",
+  );
+  assert.deepEqual(
+    otherSessionPlan.byItemId.get("item-1")?.map(({ approvalId }) => approvalId),
+    ["approval-other-session"],
+  );
 });

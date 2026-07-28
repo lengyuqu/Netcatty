@@ -34,6 +34,7 @@ function registerWithStubbedCtx() {
       setChatSessionCancelled: () => {},
       cancelPtyExecsForSession: () => {},
       cancelWorkerBackgroundJobsForSession: () => {},
+      clearPendingApprovals: () => {},
       cleanupScopedMetadata: async () => {},
     },
   };
@@ -73,6 +74,45 @@ test("sdk-agent:cleanup aborts and removes request entries for the target chat o
     codexRuntime: "sdk",
     binPath: "/bin/codex",
   });
+});
+
+test("sdk-agent:cancel resolves pending CodeBuddy elicitations for the chat as cancel", async () => {
+  const { handlers, ctx } = registerWithStubbedCtx();
+  const pendingMap = ctx.codebuddySessionManager.elicitationPending;
+
+  const controller = new AbortController();
+  ctx.sdkActiveStreams.set("req-cancel-el", controller);
+  ctx.sdkRequestSessions.set("req-cancel-el", "chat-cancel-el");
+
+  const resolved = [];
+  pendingMap.set("el-cancel-target", {
+    resolve: (v) => resolved.push(["el-cancel-target", v]),
+    reject: () => {},
+    chatSessionId: "chat-cancel-el",
+  });
+  pendingMap.set("el-cancel-other", {
+    resolve: (v) => resolved.push(["el-cancel-other", v]),
+    reject: () => {},
+    chatSessionId: "chat-cancel-unrelated",
+  });
+
+  try {
+    const cancel = handlers.get("netcatty:ai:sdk-agent:cancel");
+    const result = await cancel({ sender: {} }, {
+      requestId: "req-cancel-el", chatSessionId: "chat-cancel-el",
+    });
+    assert.deepEqual(result, { ok: true });
+
+    // Target chat: pending elicitation resolved as cancel and removed.
+    assert.deepEqual(resolved, [["el-cancel-target", { action: "cancel" }]]);
+    assert.ok(!pendingMap.has("el-cancel-target"));
+    // Other chat: untouched.
+    assert.ok(pendingMap.has("el-cancel-other"));
+  } finally {
+    pendingMap.delete("el-cancel-other");
+    ctx.sdkActiveStreams.delete("req-cancel-el");
+    ctx.sdkRequestSessions.delete("req-cancel-el");
+  }
 });
 
 test("resolveBackendKey maps backend command/value to registry key", () => {

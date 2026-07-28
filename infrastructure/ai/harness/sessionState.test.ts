@@ -133,3 +133,53 @@ test('SessionStateStore reinjects edited files and unfinished plan items', () =>
   assert.match(text, /\[done\] inspect failure/);
   assert.match(text, /\[todo\] run regression tests/);
 });
+
+test('SessionStateStore retains every potentially active background job', () => {
+  const store = new SessionStateStore();
+  for (let index = 0; index < 75; index += 1) {
+    store.updateFromToolResult(
+      'chat-many-jobs',
+      'terminal_start',
+      { sessionId: `sess-${index}`, command: `job ${index}` },
+      JSON.stringify({ jobId: `job-${index}`, status: 'running' }),
+      false,
+    );
+  }
+
+  const jobs = store.get('chat-many-jobs').activeJobs;
+  assert.equal(Object.keys(jobs).length, 75);
+  assert.equal(jobs['job-0'].status, 'running');
+  assert.match(store.toReinjectionText('chat-many-jobs') ?? '', /job-0/);
+});
+
+test('SessionStateStore host cap evicts least recently used entries', () => {
+  const store = new SessionStateStore();
+  for (let index = 0; index < 100; index += 1) {
+    store.updateFromToolResult(
+      'chat-host-lru',
+      'terminal_execute',
+      { sessionId: `sess-${index}`, command: `echo ${index}` },
+      'ok',
+      false,
+    );
+  }
+  store.updateFromToolResult(
+    'chat-host-lru',
+    'terminal_execute',
+    { sessionId: 'sess-0', command: 'echo refreshed' },
+    'ok',
+    false,
+  );
+  store.updateFromToolResult(
+    'chat-host-lru',
+    'terminal_execute',
+    { sessionId: 'sess-100', command: 'echo new' },
+    'ok',
+    false,
+  );
+
+  const hosts = store.get('chat-host-lru').activeHosts;
+  assert.equal(Object.keys(hosts).length, 100);
+  assert.ok(hosts['sess-0']);
+  assert.equal(hosts['sess-1'], undefined);
+});

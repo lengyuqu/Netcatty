@@ -68,7 +68,10 @@ import { useExternalMcpSessionSync } from './application/state/useExternalMcpSes
 import {
   STORAGE_KEY_DEBUG_HOTKEYS,
   STORAGE_KEY_PORT_FORWARDING,
+  STORAGE_KEY_TERMINAL_ENCODING_BY_HOST_PREFIX,
 } from './infrastructure/config/storageKeys';
+import { getTerminalEncodingStorageKeyForHostId } from './domain/terminalEncodingPreference';
+import { pruneDeletedSnippetVariables } from './infrastructure/persistence/snippetVariableValuesStorage';
 import { getEffectiveKnownHosts } from './infrastructure/syncHelpers';
 import { ToastProvider, toast } from './components/ui/toast';
 import { TooltipProvider } from './components/ui/tooltip';
@@ -1187,6 +1190,12 @@ function App({ settings }: { settings: SettingsState }) {
 
   const handleConfirmDeleteHost = useCallback(() => {
     if (!deleteHostConfirm) return;
+    localStorageAdapter.remove(
+      getTerminalEncodingStorageKeyForHostId(
+        STORAGE_KEY_TERMINAL_ENCODING_BY_HOST_PREFIX,
+        deleteHostConfirm.hostId,
+      ),
+    );
     updateHosts(hosts.filter(h => h.id !== deleteHostConfirm.hostId));
     setDeleteHostConfirm(null);
   }, [deleteHostConfirm, hosts, updateHosts]);
@@ -1682,7 +1691,9 @@ function App({ settings }: { settings: SettingsState }) {
     const handler = (e: Event) => {
       const id = (e as CustomEvent<{ id?: string }>).detail?.id;
       if (!id) return;
-      updateSnippets(snippets.filter((s) => s.id !== id));
+      const remaining = snippets.filter((s) => s.id !== id);
+      updateSnippets(remaining);
+      pruneDeletedSnippetVariables(remaining.map((s) => s.id));
     };
     window.addEventListener('netcatty:snippets:delete', handler);
     return () => window.removeEventListener('netcatty:snippets:delete', handler);

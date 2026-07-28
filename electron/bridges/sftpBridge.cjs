@@ -2014,6 +2014,7 @@ async function openSftpForSession(_event, payload) {
     sftpClients.set(sftpId, client);
     return { ok: true, sftpId, fileProtocol: "sftp", sourceSessionId };
   } catch (err) {
+    clearSftpEncodingState(sftpId);
     try {
       await client.end();
     } catch {

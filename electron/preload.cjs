@@ -10,6 +10,7 @@ const {
   createTerminalDataDispatcher,
   hasPluginPipelineIngress,
   hasPluginPipelineIngressMarker,
+  markClosedTerminalDataSession,
 } = require("./preload/terminalDataBacklog.cjs");
 const {
   createTerminalOutputPortRegistry,
@@ -391,7 +392,7 @@ ipcRenderer.on("netcatty:exit", (_event, payload) => {
   const sessionId = payload?.sessionId;
   if (!sessionId) return;
   const wasClosed = closedTerminalDataSessions.has(sessionId);
-  closedTerminalDataSessions.add(sessionId);
+  markClosedTerminalDataSession(closedTerminalDataSessions, sessionId);
   const set = wasClosed ? null : exitListeners.get(sessionId);
   if (set) {
     set.forEach((cb) => {

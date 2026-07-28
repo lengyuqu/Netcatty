@@ -331,6 +331,7 @@ export function VaultViewLayout({ ctx }: { ctx: VaultViewLayoutContext }) {
     resizeAriaLabel: t("vault.panel.resizeWidth"),
   };
   const [isSidebarResizing, setIsSidebarResizing] = React.useState(false);
+  const sidebarResizeCleanupRef = React.useRef<(() => void) | null>(null);
   const keyListRef = React.useRef(keys);
   keyListRef.current = keys;
   const newHostActionsRef = React.useRef<HTMLDivElement>(null);
@@ -379,6 +380,8 @@ export function VaultViewLayout({ ctx }: { ctx: VaultViewLayoutContext }) {
     (event: React.PointerEvent<HTMLDivElement>) => {
       event.preventDefault();
       event.stopPropagation();
+      sidebarResizeCleanupRef.current?.();
+      sidebarResizeCleanupRef.current = null;
 
       const startX = event.clientX;
       const startWidth = effectiveSidebarWidth;
@@ -395,24 +398,43 @@ export function VaultViewLayout({ ctx }: { ctx: VaultViewLayoutContext }) {
       const handlePointerMove = (moveEvent: PointerEvent) => {
         setSidebarWidth(clampWidth(startWidth + moveEvent.clientX - startX));
       };
-      const handlePointerUp = (upEvent: PointerEvent) => {
+      const cleanup = () => {
+        window.removeEventListener("pointermove", handlePointerMove);
+        window.removeEventListener("pointerup", finishResize);
+        window.removeEventListener("pointercancel", handlePointerCancel);
+        document.body.style.cursor = previousCursor;
+        document.body.style.userSelect = previousUserSelect;
+        if (sidebarResizeCleanupRef.current === cleanup) {
+          sidebarResizeCleanupRef.current = null;
+        }
+      };
+      const finishResize = (upEvent: PointerEvent) => {
         const nextWidth = clampWidth(startWidth + upEvent.clientX - startX);
         setSidebarWidth(nextWidth);
         handleSidebarWidthCommit(nextWidth);
         setIsSidebarResizing(false);
-        document.body.style.cursor = previousCursor;
-        document.body.style.userSelect = previousUserSelect;
-        window.removeEventListener("pointermove", handlePointerMove);
-        window.removeEventListener("pointerup", handlePointerUp);
-        window.removeEventListener("pointercancel", handlePointerUp);
+        cleanup();
+      };
+      // Cancel only resets transient state; does NOT commit the interrupted resize.
+      const handlePointerCancel = () => {
+        setSidebarWidth(startWidth);
+        setIsSidebarResizing(false);
+        cleanup();
       };
 
       window.addEventListener("pointermove", handlePointerMove);
-      window.addEventListener("pointerup", handlePointerUp);
-      window.addEventListener("pointercancel", handlePointerUp);
+      window.addEventListener("pointerup", finishResize);
+      window.addEventListener("pointercancel", handlePointerCancel);
+      sidebarResizeCleanupRef.current = cleanup;
     },
     [effectiveSidebarWidth, handleSidebarWidthCommit, setSidebarWidth],
   );
+
+  React.useEffect(() => () => {
+    const cleanup = sidebarResizeCleanupRef.current;
+    sidebarResizeCleanupRef.current = null;
+    cleanup?.();
+  }, []);
 
   React.useEffect(() => {
     if (!isHostPanelOpen) return;

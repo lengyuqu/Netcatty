@@ -2,6 +2,10 @@ import { redactSecretsForModel } from './modelSecretRedaction';
 
 const MAX_DECISIONS = 15;
 const MAX_BLOCKERS = 10;
+/** Cap activeHosts to prevent unbounded growth; oldest entries are evicted. */
+const MAX_ACTIVE_HOSTS = 100;
+/** Cap terminalReadCursors to prevent unbounded growth; oldest entries are evicted. */
+const MAX_TERMINAL_READ_CURSORS = 50;
 
 export interface ActiveTerminalJobState {
   sessionId?: string;
@@ -47,6 +51,12 @@ function pushUnique(list: string[], value: string, cap: number): string[] {
   const trimmed = value.trim();
   if (!trimmed || list.includes(trimmed)) return list;
   return [...list, trimmed].slice(-cap);
+}
+
+function upsertMostRecent<T>(record: Record<string, T>, key: string, value: T): Record<string, T> {
+  const next = { ...record };
+  delete next[key];
+  return { ...next, [key]: value };
 }
 
 function parseResultObject(resultText: string): Record<string, unknown> | undefined {
@@ -140,28 +150,22 @@ export class SessionStateStore {
       const sessionId = typeof args?.sessionId === 'string' ? args.sessionId : undefined;
       const command = typeof args?.command === 'string' ? args.command : undefined;
       if (sessionId) {
-        state.activeHosts = {
-          ...state.activeHosts,
-          [sessionId]: {
-            ...state.activeHosts[sessionId],
-            lastCommand: command,
-          },
-        };
+        state.activeHosts = upsertMostRecent(state.activeHosts, sessionId, {
+          ...state.activeHosts[sessionId],
+          lastCommand: command,
+        });
       }
     }
 
     if (name === 'terminal_start' || name === 'terminal.start') {
       const jobId = typeof result?.jobId === 'string' ? result.jobId : undefined;
       if (jobId && !isError) {
-        state.activeJobs = {
-          ...state.activeJobs,
-          [jobId]: {
-            sessionId: typeof args?.sessionId === 'string' ? args.sessionId : undefined,
-            command: typeof args?.command === 'string' ? args.command : undefined,
-            status: typeof result?.status === 'string' ? result.status : 'running',
-            nextOffset: typeof result?.nextOffset === 'number' ? result.nextOffset : 0,
-          },
-        };
+        state.activeJobs = upsertMostRecent(state.activeJobs, jobId, {
+          sessionId: typeof args?.sessionId === 'string' ? args.sessionId : undefined,
+          command: typeof args?.command === 'string' ? args.command : undefined,
+          status: typeof result?.status === 'string' ? result.status : 'running',
+          nextOffset: typeof result?.nextOffset === 'number' ? result.nextOffset : 0,
+        });
       }
     }
 
@@ -172,16 +176,13 @@ export class SessionStateStore {
       if (jobId && !isError) {
         const status = typeof result?.status === 'string' ? result.status : 'running';
         if (status === 'running' || status === 'stopping') {
-          state.activeJobs = {
-            ...state.activeJobs,
-            [jobId]: {
-              ...state.activeJobs[jobId],
-              status,
-              nextOffset: typeof result?.nextOffset === 'number'
-                ? result.nextOffset
-                : state.activeJobs[jobId]?.nextOffset ?? 0,
-            },
-          };
+          state.activeJobs = upsertMostRecent(state.activeJobs, jobId, {
+            ...state.activeJobs[jobId],
+            status,
+            nextOffset: typeof result?.nextOffset === 'number'
+              ? result.nextOffset
+              : state.activeJobs[jobId]?.nextOffset ?? 0,
+          });
         } else if (state.activeJobs[jobId]) {
           state.activeJobs = { ...state.activeJobs };
           delete state.activeJobs[jobId];
@@ -191,10 +192,10 @@ export class SessionStateStore {
           state.activeJobs = { ...state.activeJobs };
           delete state.activeJobs[jobId];
         } else {
-          state.activeJobs = {
-            ...state.activeJobs,
-            [jobId]: { ...state.activeJobs[jobId], status: 'unverified' },
-          };
+          state.activeJobs = upsertMostRecent(state.activeJobs, jobId, {
+            ...state.activeJobs[jobId],
+            status: 'unverified',
+          });
         }
       }
     }
@@ -202,10 +203,10 @@ export class SessionStateStore {
     if (name === 'terminal_stop' || name === 'terminal.stop') {
       const jobId = typeof args?.jobId === 'string' ? args.jobId : undefined;
       if (jobId && state.activeJobs[jobId]) {
-        state.activeJobs = {
-          ...state.activeJobs,
-          [jobId]: { ...state.activeJobs[jobId], status: 'stopping' },
-        };
+        state.activeJobs = upsertMostRecent(state.activeJobs, jobId, {
+          ...state.activeJobs[jobId],
+          status: 'stopping',
+        });
       }
     }
 
@@ -214,16 +215,13 @@ export class SessionStateStore {
         ? args.sessionId
         : typeof result?.sessionId === 'string' ? result.sessionId : undefined;
       if (sessionId && !isError) {
-        state.terminalReadCursors = {
-          ...state.terminalReadCursors,
-          [sessionId]: {
-            range: typeof args?.range === 'string' ? args.range : 'viewport',
-            startLine: typeof result?.startLine === 'number'
-              ? result.startLine
-              : typeof args?.startLine === 'number' ? args.startLine : undefined,
-            endLine: typeof result?.endLine === 'number' ? result.endLine : undefined,
-          },
-        };
+        state.terminalReadCursors = upsertMostRecent(state.terminalReadCursors, sessionId, {
+          range: typeof args?.range === 'string' ? args.range : 'viewport',
+          startLine: typeof result?.startLine === 'number'
+            ? result.startLine
+            : typeof args?.startLine === 'number' ? args.startLine : undefined,
+          endLine: typeof result?.endLine === 'number' ? result.endLine : undefined,
+        });
       }
     }
 
@@ -249,6 +247,48 @@ export class SessionStateStore {
 
     state.updatedAt = Date.now();
     this.bySession.set(chatSessionId, state);
+    this.pruneActiveHosts(chatSessionId);
+    this.pruneTerminalReadCursors(chatSessionId);
+  }
+
+  /**
+   * Evict the oldest activeHosts entries when the record exceeds the cap.
+   * Updates are moved to the end by upsertMostRecent(), so the first keys are
+   * the least recently used entries.
+   */
+  private pruneActiveHosts(chatSessionId: string): void {
+    const state = this.bySession.get(chatSessionId);
+    if (!state) return;
+    const keys = Object.keys(state.activeHosts);
+    if (keys.length <= MAX_ACTIVE_HOSTS) return;
+    const excess = keys.length - MAX_ACTIVE_HOSTS;
+    console.debug('[SessionState] pruning activeHosts: exceeded cap, trimming oldest entries', { count: keys.length, cap: MAX_ACTIVE_HOSTS });
+    const pruned = { ...state.activeHosts };
+    for (let i = 0; i < excess; i++) {
+      delete pruned[keys[i]];
+    }
+    state.activeHosts = pruned;
+  }
+
+  /**
+   * Evict the least recently read terminal cursors. Active jobs are not capped:
+   * every retained entry represents a command that may still be running and
+   * must survive compaction to prevent accidental duplicate execution.
+   */
+  private pruneTerminalReadCursors(chatSessionId: string): void {
+    const state = this.bySession.get(chatSessionId);
+    if (!state) return;
+
+    const cursorKeys = Object.keys(state.terminalReadCursors);
+    if (cursorKeys.length > MAX_TERMINAL_READ_CURSORS) {
+      console.debug('[SessionState] pruning terminalReadCursors: exceeded cap, trimming oldest entries', { count: cursorKeys.length, cap: MAX_TERMINAL_READ_CURSORS });
+      const excess = cursorKeys.length - MAX_TERMINAL_READ_CURSORS;
+      const pruned = { ...state.terminalReadCursors };
+      for (let i = 0; i < excess; i++) {
+        delete pruned[cursorKeys[i]];
+      }
+      state.terminalReadCursors = pruned;
+    }
   }
 
   toReinjectionText(chatSessionId: string): string | undefined {
@@ -268,10 +308,18 @@ export class SessionStateStore {
     }
     const jobs = Object.entries(state.activeJobs);
     if (jobs.length) {
-      const jobSummary = jobs.slice(-5).map(([jobId, job]) => (
+      const recentJobs = jobs.slice(-5);
+      const olderJobs = jobs.slice(0, -5);
+      const jobSummary = recentJobs.map(([jobId, job]) => (
         `${jobId} (status=${job.status}, offset=${job.nextOffset}${job.sessionId ? `, session=${job.sessionId}` : ''}${job.command ? `, command=${redactSecretsForModel(job.command)}` : ''})`
       )).join('; ');
       lines.push(`Remembered terminal jobs (status is unverified after compaction): ${jobSummary}. Poll the existing job from its saved offset to verify current status; do not restart its command.`);
+      if (olderJobs.length) {
+        const olderSummary = olderJobs.map(([jobId, job]) => (
+          `${jobId} (status=${job.status}${job.sessionId ? `, session=${job.sessionId}` : ''})`
+        )).join('; ');
+        lines.push(`Additional remembered terminal jobs (do not restart): ${olderSummary}. Poll by job id before taking action.`);
+      }
     }
     const cursors = Object.entries(state.terminalReadCursors);
     if (cursors.length) {

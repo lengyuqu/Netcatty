@@ -128,6 +128,9 @@ export class KeywordHighlighter implements IDisposable {
   private lastUserInputAt = 0;
   private scrollRefreshJob: ScrollRefreshJob | null = null;
   private scrollRefreshGeneration = 0;
+  /** Periodic full-scan fallback to reclaim leaked decoration entries. */
+  private refreshCount = 0;
+  private static readonly FULL_SCAN_INTERVAL = 500;
   private static readonly DIRTY_SCAN_PADDING = XTERM_PERFORMANCE_CONFIG.highlighting.dirtyScanPadding;
   private static readonly SCROLL_SETTLE_DEBOUNCE_MS = XTERM_PERFORMANCE_CONFIG.highlighting.scrollSettleDebounceMs;
   private static readonly INPUT_QUIET_MS = XTERM_PERFORMANCE_CONFIG.highlighting.inputQuietMs;
@@ -349,6 +352,10 @@ export class KeywordHighlighter implements IDisposable {
       this.cancelScrollRefresh();
       if (this.lineDecorations.size > 0) this.clearDecorations();
       return;
+    }
+    this.refreshCount++;
+    if (this.refreshCount % KeywordHighlighter.FULL_SCAN_INTERVAL === 0) {
+      this.pruneStaleLineDecorations();
     }
     this.lastRefreshTime = performance.now();
     const reason = this.pendingRefreshReason;
@@ -1303,6 +1310,25 @@ export class KeywordHighlighter implements IDisposable {
     this.clearLineDecorationsOutsideRange(job.start, job.end);
     this.lastViewportRange = { start: job.start, end: job.end };
     this.lastRenderRange = { start: job.start, end: job.end };
+  }
+
+  /**
+   * Full-sweep fallback: walk every entry in lineDecorations and dispose any
+   * whose marker is gone or whose line no longer exists in the active buffer.
+   * Runs every FULL_SCAN_INTERVAL refreshes to reclaim entries that the
+   * hash-probe diff path may have missed under extreme output rates.
+   */
+  private pruneStaleLineDecorations() {
+    if (this.lineDecorations.size === 0) return;
+    const buffer = this.term.buffer.active;
+    const bufferLength = buffer.length;
+    for (const [lineY, state] of this.lineDecorations) {
+      if (state.marker.isDisposed || lineY < 0 || lineY >= bufferLength) {
+        state.decorations.forEach((decoration) => decoration.dispose());
+        if (!state.marker.isDisposed) state.marker.dispose();
+        this.lineDecorations.delete(lineY);
+      }
+    }
   }
 
   private cancelScrollRefresh() {

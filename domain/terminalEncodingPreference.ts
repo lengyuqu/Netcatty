@@ -82,3 +82,12 @@ export const createTerminalEncodingStorageKey = (
   ].join('|');
   return `${prefix}${encodeURIComponent(rawKey)}`;
 };
+
+/**
+ * Build the localStorage key used to persist encoding preference for a host
+ * identified by its stable `hostId`.
+ */
+export const getTerminalEncodingStorageKeyForHostId = (
+  prefix: string,
+  hostId: string,
+): string => `${prefix}${encodeURIComponent(hostId)}`;

@@ -365,6 +365,48 @@ test('ToolOutputStore does not persist output that arrives after its terminal cl
   assert.equal(await store.readChunkAsync({ handleId: lateHandle.id }, 'chat-late-output'), null);
 });
 
+test('ToolOutputStore keeps terminal tombstones beyond the output retention window', () => {
+  let now = 1_000;
+  const store = new ToolOutputStore({
+    now: () => now,
+    ttlMs: 100,
+  });
+
+  store.pruneTerminalSessionEverywhere('terminal-expiring');
+  const blocked = store.store({
+    chatSessionId: 'chat-expiring',
+    capabilityId: 'terminal.execute',
+    sessionId: 'terminal-expiring',
+    content: 'late',
+  });
+  assert.equal(blocked.evicted, true);
+
+  now += 101;
+  const stillBlocked = store.store({
+    chatSessionId: 'chat-expiring',
+    capabilityId: 'terminal.execute',
+    sessionId: 'terminal-expiring',
+    content: 'very late output',
+  });
+  assert.equal(stillBlocked.evicted, true);
+  assert.equal(store.listPendingHandles('chat-expiring').length, 0);
+});
+
+test('ToolOutputStore bounds process-lifetime terminal tombstone tracking', () => {
+  const store = new ToolOutputStore();
+
+  for (let index = 0; index <= 10_000; index += 1) {
+    store.pruneTerminalSessionEverywhere(`terminal-${index}`);
+  }
+
+  const tracked = (store as unknown as {
+    closedTerminalSessions: Set<string>;
+  }).closedTerminalSessions;
+  assert.equal(tracked.size, 10_000);
+  assert.equal(tracked.has('terminal-0'), false);
+  assert.equal(tracked.has('terminal-10000'), true);
+});
+
 test('ToolOutputStore does not resurrect a handle when its chat is deleted during restore', async () => {
   let finishRestore!: (value: { path: string; record: PersistedToolOutputRecord }) => void;
   const restoreFinished = new Promise<{ path: string; record: PersistedToolOutputRecord }>(resolve => {

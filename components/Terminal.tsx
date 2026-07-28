@@ -1523,6 +1523,11 @@ const TerminalComponent: React.FC<TerminalProps> = ({
       return;
     }
 
+    // Clean up soft-hidden state so the store does not retain a stale entry
+    // for a session that is about to be closed.
+    terminalHiddenRendererStore.clearSoftHidden(closingSessionId);
+    softHiddenRef.current = false;
+
     // Observe/attach popups must not kill the backend session — only release
     // the display route back to the home renderer.
     if (attachExistingSession) {

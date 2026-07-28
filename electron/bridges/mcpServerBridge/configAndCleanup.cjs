@@ -4,7 +4,7 @@ function createConfigAndCleanupApi(ctx) {
     function resolveMcpServerRuntimeCommand() {
       const runtimeCommand = process.execPath;
       const runtimeEnv = [];
-    
+
       if (runtimeCommand && existsSync(runtimeCommand)) {
         const basename = path.basename(runtimeCommand).toLowerCase();
         const isNodeBinary = basename === "node" || basename.startsWith("node.");
@@ -51,6 +51,13 @@ function createConfigAndCleanupApi(ctx) {
         env.push({ name: "NETCATTY_MCP_CHAT_SESSION_ID", value: chatSessionId });
       }
     
+      // Pass command timeout (seconds) as milliseconds so the MCP subprocess
+      // can use it for its RPC pendingRequests timeout.
+      const commandTimeoutMs = typeof getCommandTimeoutMs === "function"
+        ? getCommandTimeoutMs()
+        : 60_000;
+      env.push({ name: "NETCATTY_MCP_RPC_TIMEOUT_MS", value: String(commandTimeoutMs) });
+
       // Pass permission mode so MCP server can enforce it locally (defense-in-depth)
       env.push({ name: "NETCATTY_MCP_PERMISSION_MODE", value: permissionMode });
     

@@ -74,9 +74,12 @@ export function compareVersions(a: string, b: string): number {
  * Used by useUpdateCheck for the notification banner.
  */
 export async function checkForUpdates(currentVersion: string): Promise<UpdateCheckResult> {
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), 15_000);
   try {
     const response = await fetch(GITHUB_API_URL, {
       headers: { Accept: 'application/vnd.github.v3+json' },
+      signal: controller.signal,
     });
 
     if (!response.ok) {
@@ -104,12 +107,23 @@ export async function checkForUpdates(currentVersion: string): Promise<UpdateChe
 
     return { hasUpdate, currentVersion, latestRelease };
   } catch (error) {
+    // AbortError from the 15 s timeout — treat as no update available
+    if (error instanceof DOMException && error.name === 'AbortError') {
+      return {
+        hasUpdate: false,
+        currentVersion,
+        latestRelease: null,
+        error: 'Update check timed out',
+      };
+    }
     return {
       hasUpdate: false,
       currentVersion,
       latestRelease: null,
       error: error instanceof Error ? error.message : 'Unknown error',
     };
+  } finally {
+    clearTimeout(timeoutId);
   }
 }
 

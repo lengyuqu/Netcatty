@@ -2,8 +2,21 @@ import type { ConnectionLog } from "./models.ts";
 
 /** Max unsaved connection logs whose terminal replay data we persist separately. */
 export const MAX_PERSISTED_UNSAVED_TERMINAL_DATA_ENTRIES = 50;
+export const MAX_RETAINED_UNSAVED_CONNECTION_LOGS = 500;
 
 export type ConnectionLogTerminalDataMap = Record<string, string>;
+
+export const retainConnectionLogs = (
+  logs: ConnectionLog[],
+): ConnectionLog[] => {
+  const sorted = [...logs].sort((a, b) => b.startTime - a.startTime);
+  const saved = sorted
+    .filter(log => log.saved);
+  const unsaved = sorted
+    .filter(log => !log.saved)
+    .slice(0, MAX_RETAINED_UNSAVED_CONNECTION_LOGS);
+  return [...saved, ...unsaved].sort((a, b) => b.startTime - a.startTime);
+};
 
 export const readTerminalDataFromLog = (log: ConnectionLog): string | undefined =>
   log.terminalData;

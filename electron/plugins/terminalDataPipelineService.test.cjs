@@ -428,6 +428,7 @@ test("a worker-confirmed terminal exit revokes session grants and clears pipelin
 
   assert.deepEqual(h.revokedSessions, [session.sessionId]);
   assert.equal(h.service.active.size, 0);
+  assert.equal(h.service.sessionEpochs.has(session.sessionId), false);
   assert.deepEqual(h.detached, [{ sessionId: session.sessionId, direction: "input" }]);
 });
 

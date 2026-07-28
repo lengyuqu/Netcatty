@@ -31,6 +31,15 @@ test("vault sidebar toggle keeps an accessible action label", () => {
   );
 });
 
+test("vault sidebar resize cleans global listeners when the layout unmounts", () => {
+  assert.match(vaultViewLayoutSource, /const sidebarResizeCleanupRef = React\.useRef/);
+  assert.match(vaultViewLayoutSource, /sidebarResizeCleanupRef\.current = cleanup/);
+  assert.match(
+    vaultViewLayoutSource,
+    /React\.useEffect\(\(\) => \(\) => \{\s*const cleanup = sidebarResizeCleanupRef\.current;/,
+  );
+});
+
 test("keychain deletion clears the remembered passphrase through the vault handler", () => {
   assert.match(vaultViewLayoutSource, /const handleDeleteVaultKey = React\.useCallback/);
   assert.match(vaultViewLayoutSource, /void deleteVaultKey\(\{/);

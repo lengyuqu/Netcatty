@@ -129,6 +129,24 @@ function clearTerminalDataBacklog({
   terminalDataBacklog?.clear?.(sessionId);
 }
 
+const MAX_CLOSED_TERMINAL_DATA_SESSIONS = 10_000;
+
+function reopenTerminalDataSession(closedSessions, sessionId) {
+  if (!closedSessions || !sessionId) return;
+  closedSessions.delete(sessionId);
+}
+
+function markClosedTerminalDataSession(closedSessions, sessionId) {
+  if (!closedSessions || !sessionId) return;
+  closedSessions.delete(sessionId);
+  closedSessions.add(sessionId);
+  while (closedSessions.size > MAX_CLOSED_TERMINAL_DATA_SESSIONS) {
+    const oldestSessionId = closedSessions.values().next().value;
+    if (oldestSessionId === undefined) break;
+    closedSessions.delete(oldestSessionId);
+  }
+}
+
 module.exports = {
   clearTerminalDataBacklog,
   createTerminalDataBacklog,
@@ -136,4 +154,7 @@ module.exports = {
   clearTerminalDataSession,
   hasPluginPipelineIngress,
   hasPluginPipelineIngressMarker,
+  MAX_CLOSED_TERMINAL_DATA_SESSIONS,
+  markClosedTerminalDataSession,
+  reopenTerminalDataSession,
 };

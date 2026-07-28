@@ -10,6 +10,7 @@ import {
   subscribeFontAvailability,
   getFontAvailabilityVersion,
   bundledFamiliesInStack,
+  getCanvasCacheSize,
 } from './fontAvailability';
 
 describe('bundledFamiliesInStack', () => {
@@ -220,5 +221,37 @@ describe('font availability subscription', () => {
     const after = calls;
     clearFontAvailabilityCache();
     assert.ok(calls > after, 'clear notifies too');
+  });
+});
+
+describe('setSystemFamilies clears canvas cache', () => {
+  beforeEach(() => {
+    clearFontAvailabilityCache();
+  });
+
+  it('clears accumulated canvas measurement cache when authoritative data arrives', () => {
+    // In fallback mode (no systemFamilies), isFontInstalled populates the cache.
+    // In Node test env there is no DOM, so buildBrowserContext returns null and
+    // the cache stores `true` for every queried family.
+    assert.equal(hasAuthoritativeData(), false);
+    isFontInstalled('FontA');
+    isFontInstalled('FontB');
+    isFontInstalled('FontC');
+    assert.ok(getCanvasCacheSize() >= 3, 'cache should have accumulated entries');
+
+    // Authoritative data arrives → cache should be cleared.
+    setSystemFamilies(new Set(['fonta', 'fontb', 'fontc']));
+    assert.equal(getCanvasCacheSize(), 0, 'canvas cache should be cleared');
+  });
+
+  it('does not clear cache when setSystemFamilies receives null', () => {
+    // Populate cache in fallback mode.
+    isFontInstalled('FontX');
+    const sizeBefore = getCanvasCacheSize();
+    assert.ok(sizeBefore >= 1, 'cache should have at least one entry');
+
+    // Passing null re-enters fallback mode; cache must NOT be cleared.
+    setSystemFamilies(null);
+    assert.equal(getCanvasCacheSize(), sizeBefore, 'cache preserved when families is null');
   });
 });

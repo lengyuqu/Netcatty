@@ -1,11 +1,16 @@
 import type { ModelMessage } from 'ai';
 import { findSafeCompactionSplitIndex } from '../contextCompaction';
 
+/** Entries older than this are considered stale and eligible for eviction.
+ *  Set to 60 minutes to accommodate long coding sessions. */
+const MAX_ENTRY_AGE_MS = 60 * 60 * 1000; // 60 minutes
+
 interface CacheEntry {
   modelId: string;
   prefixLength: number;
   fingerprint: string;
   notePromise: Promise<string>;
+  createdAt: number;
 }
 
 function canonicalize(value: unknown): unknown {
@@ -64,7 +69,9 @@ export class TwoPassCompactionCache {
       prefixLength,
       fingerprint,
       notePromise: producer(prefix).then(note => note.slice(0, 12_000)).catch(() => ''),
+      createdAt: Date.now(),
     });
+    this.pruneStale();
     return true;
   }
 
@@ -83,12 +90,29 @@ export class TwoPassCompactionCache {
       this.entries.delete(chatSessionId);
       return undefined;
     }
+    // Refresh TTL on successful match so actively used entries are not pruned
+    // during long sessions.
+    entry.createdAt = Date.now();
     const note = await entry.notePromise;
     return note ? { note, prefixLength: entry.prefixLength } : undefined;
   }
 
   clear(chatSessionId: string): void {
     this.entries.delete(chatSessionId);
+  }
+
+  /**
+   * Remove cache entries whose age exceeds MAX_ENTRY_AGE_MS.
+   * Called during start() to prevent abandoned sessions from
+   * accumulating stale entries with pending Promises.
+   */
+  private pruneStale(): void {
+    const cutoff = Date.now() - MAX_ENTRY_AGE_MS;
+    for (const [key, entry] of this.entries) {
+      if (entry.createdAt < cutoff) {
+        this.entries.delete(key);
+      }
+    }
   }
 }
 

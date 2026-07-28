@@ -187,6 +187,12 @@ type HostKeyVerificationRequest = SftpHostKeyInfo & {
   sessionId?: string;
 };
 
+/**
+ * Cap on connectionLogs array size to prevent unbounded growth during
+ * connection attempts / retry storms. Oldest entries are dropped first.
+ */
+const MAX_CONNECTION_LOGS = 200;
+
 const toSftpHostKeyInfo = (request: HostKeyVerificationRequest): SftpHostKeyInfo => ({
   hostname: request.hostname,
   port: request.port || 22,
@@ -283,7 +289,7 @@ export const useSftpConnections = ({
       }
       updateTab(activeSide, activeSession.tabId, (prev) => ({
         ...prev,
-        connectionLogs: [...prev.connectionLogs, logLine],
+        connectionLogs: [...prev.connectionLogs, logLine].slice(-MAX_CONNECTION_LOGS),
       }));
       setPendingHostKeyVerification({
         requestId: request.requestId,
@@ -641,7 +647,7 @@ export const useSftpConnections = ({
             if (!isTargetConnectionCurrent()) return;
             updateTargetTab((prev) => ({
               ...prev,
-              connectionLogs: [...prev.connectionLogs, logLine],
+              connectionLogs: [...prev.connectionLogs, logLine].slice(-MAX_CONNECTION_LOGS),
             }));
           });
         }

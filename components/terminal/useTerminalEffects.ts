@@ -1059,12 +1059,14 @@ export function useTerminalEffects(ctx: TerminalEffectsContext) {
   };
 
   const layoutRecoveryTimersRef = useRef<ReturnType<typeof setTimeout>[]>([]);
+  const layoutRecoveryGenerationRef = useRef(0);
 
   const clearLayoutRecoveryTimers = () => {
     for (const timerId of layoutRecoveryTimersRef.current) {
       clearTimeout(timerId);
     }
     layoutRecoveryTimersRef.current = [];
+    layoutRecoveryGenerationRef.current += 1;
   };
 
   // Re-fit after the app returns from the background, macOS fullscreen toggles,
@@ -1072,9 +1074,12 @@ export function useTerminalEffects(ctx: TerminalEffectsContext) {
   // ResizeObserver (common after App Nap / GPU context eviction).
   const scheduleLayoutRecoveryRefit = (delaysMs: number[] = [80, 250]) => {
     clearLayoutRecoveryTimers();
+    const generation = layoutRecoveryGenerationRef.current;
     for (const delayMs of delaysMs) {
       const timerId = setTimeout(() => {
         layoutRecoveryTimersRef.current = layoutRecoveryTimersRef.current.filter((id) => id !== timerId);
+        // Guard against stale callbacks from a superseded scheduling cycle.
+        if (layoutRecoveryGenerationRef.current !== generation) return;
         if (!isVisibleRef.current) return;
         runImmediateRefit({ force: true, repeatOnNextFrame: false });
         finishLayoutRecoveryAfterFit();

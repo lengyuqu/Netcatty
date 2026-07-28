@@ -552,6 +552,7 @@ function createFileOpsApi(ctx) {
       const sftpId = payload?.sftpId;
       const client = sftpClients.get(sftpId);
       if (!client) {
+        clearSftpEncodingState(sftpId);
         try {
           const { sftpTransferSessionLeaseStore } = require("../sftpTransferSessionLease.cjs");
           sftpTransferSessionLeaseStore.clear(sftpId);
