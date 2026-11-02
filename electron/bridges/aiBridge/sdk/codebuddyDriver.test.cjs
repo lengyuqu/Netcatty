@@ -517,6 +517,50 @@ test("listCodebuddyModels uses V2 raw model capabilities when available", async 
   assert.equal(models[0].defaultThinkingLevel, "high");
 });
 
+test("listCodebuddyModels uses the simple V2 catalog when the raw request fails", async () => {
+  let closed = false;
+  const models = await listCodebuddyModels({
+    createSessionFn: () => ({
+      async getAvailableModelsRaw() { throw new Error("unsupported"); },
+      async getAvailableModels() { return [{ value: "model-simple", displayName: "Simple" }]; },
+      close() { closed = true; },
+    }),
+    queryFn: () => { throw new Error("legacy should not be used"); },
+  });
+  assert.equal(models[0].id, "model-simple");
+  assert.equal(closed, true);
+});
+
+test("listCodebuddyModels falls back to legacy when V2 returns no usable models", async () => {
+  let closed = false;
+  const models = await listCodebuddyModels({
+    createSessionFn: () => ({
+      async getAvailableModelsRaw() { return []; },
+      async getAvailableModels() { return []; },
+      close() { closed = true; },
+    }),
+    queryFn: () => ({
+      async supportedModels() { return [{ value: "model-legacy", displayName: "Legacy" }]; },
+      async return() {},
+    }),
+  });
+  assert.equal(models[0].id, "model-legacy");
+  assert.equal(closed, true);
+});
+
+test("runCodebuddyTurn does not claim an empty response proves an authentication failure", async () => {
+  const { events, emitter } = collector();
+  await runCodebuddyTurn({
+    prompt: "hello",
+    options: {},
+    emitter,
+    queryFn: () => (async function* () {})(),
+  });
+  const error = events.find((event) => event.k === "error");
+  assert.match(error.m, /empty response.*connection.*authentication/);
+  assert.doesNotMatch(error.m, /log in/);
+});
+
 // ---------------------------------------------------------------------------
 // SDK 0.3.258 options
 // ---------------------------------------------------------------------------

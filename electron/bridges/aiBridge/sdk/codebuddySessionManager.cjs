@@ -245,17 +245,18 @@ class CodebuddySessionManager {
             await session.send(msg);
           }
         }
-      } catch {
-        // Initial transport setup happens inside send(). Release any acquired
-        // session lock/process before the caller falls back to legacy query().
+      } catch (error) {
+        // send() can fail after writing to the transport. Never replay the
+        // prompt automatically when delivery is uncertain.
         this.closeSession(sessionKey);
-        // Do not reinterpret invalid privacy state as a transport fallback.
         assertSessionValid?.();
         if (signal?.aborted) {
           emitter.emitDone();
           return { sessionId, usedV2: true };
         }
-        return null;
+        const classified = classifyCodebuddySpawnError(error);
+        emitter.emitError(`CodeBuddy could not send the message: ${classified.message || "unknown error"}. Delivery may have occurred; check the session before retrying.`);
+        return { sessionId, usedV2: true };
       }
 
       if (signal?.aborted) {
@@ -310,8 +311,8 @@ class CodebuddySessionManager {
       }
       if (!hasContent && !options.abortController?.signal?.aborted) {
         emitter.emitError(
-          "CodeBuddy returned an empty response. Run `codebuddy` in a terminal to log in, " +
-          "or set CODEBUDDY_API_KEY / CODEBUDDY_AUTH_TOKEN.",
+          "CodeBuddy returned an empty response. Check the CLI output, connection, " +
+          "model availability and authentication, then try again.",
         );
         return { sessionId, usedV2: true };
       }

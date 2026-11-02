@@ -476,7 +476,9 @@ function resolveConfiguredSdkPath({
     return resolveCodexExecutableForSdk(realPath) || undefined;
   }
   if (backendKey === "codebuddy" && typeof resolveCodebuddyExecutableForSdk === "function") {
-    return resolveCodebuddyExecutableForSdk(realPath) || undefined;
+    const executable = resolveCodebuddyExecutableForSdk(realPath);
+    if (!executable) throw new Error(`Cannot resolve CodeBuddy CLI entry from: ${configuredPath}. Check the installation or select its executable.`);
+    return executable;
   }
   return realPath;
 }
@@ -505,12 +507,13 @@ function resolveSdkBackendBinPath({
     const realPath = resolveRealCliPath(rawPath, realpath);
     // On Windows the discovered path is an npm shim (codebuddy.cmd/.ps1) that the
     // Agent SDK can't run through `node`; resolve it to the package's JS entry so
-    // it launches like on macOS/Linux. A null result means the shim is unrunnable
-    // and unresolvable, so fall back to the SDK's bundled CLI.
+    // it launches like on macOS/Linux. Packaged Netcatty excludes the SDK's
+    // bundled CLI, so an unresolvable shim must be reported instead of falling back.
     const sdkPath = typeof resolveCodebuddyExecutableForSdk === "function"
       ? resolveCodebuddyExecutableForSdk(realPath)
       : realPath;
-    return sdkPath || undefined;
+    if (!sdkPath) throw new Error(`Cannot resolve CodeBuddy CLI entry from: ${rawPath}. Check the installation or select its executable.`);
+    return sdkPath;
   }
   if (backendKey === "opencode") {
     const configuredEnvPath = normalizeCliPathForPlatform?.(env?.OPENCODE_BIN);

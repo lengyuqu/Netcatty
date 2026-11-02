@@ -640,8 +640,8 @@ async function runCodebuddyTurn({ prompt, attachments, options, emitter, queryFn
     }
     if (!hasContent && !options.abortController?.signal?.aborted) {
       emitter.emitError(
-        "CodeBuddy returned an empty response. Run `codebuddy` in a terminal to log in, " +
-        "or set CODEBUDDY_API_KEY / CODEBUDDY_AUTH_TOKEN.",
+        "CodeBuddy returned an empty response. Check the CLI output, connection, " +
+        "model availability and authentication, then try again.",
       );
       return { sessionId };
     }
@@ -717,6 +717,7 @@ function mapCodebuddyModels(models) {
  */
 async function raceCodebuddyModelRequest(request, signal) {
   if (!signal) return { type: "models", models: await request() };
+  if (signal.aborted) return { type: "aborted" };
   let onAbort;
   const abortPromise = new Promise((resolve) => {
     onAbort = () => resolve({ type: "aborted" });
@@ -738,15 +739,21 @@ async function listCodebuddyModelsViaSession({ createSessionFn, pathToCodebuddyC
   let session;
   try {
     session = createSessionFn({ pathToCodebuddyCode, env });
-    if (typeof session?.getAvailableModelsRaw !== "function") return null;
-
-    const rawResult = await raceCodebuddyModelRequest(
-      () => session.getAvailableModelsRaw(),
-      signal,
-    );
-    if (rawResult.type === "aborted") return [];
-    if (Array.isArray(rawResult.models) && rawResult.models.length > 0) {
-      return mapCodebuddyModels(rawResult.models);
+    if (typeof session?.getAvailableModelsRaw === "function") {
+      try {
+        const rawResult = await raceCodebuddyModelRequest(
+          () => session.getAvailableModelsRaw(),
+          signal,
+        );
+        if (rawResult.type === "aborted") return [];
+        if (Array.isArray(rawResult.models) && rawResult.models.length > 0) {
+          const models = mapCodebuddyModels(rawResult.models);
+          if (models.length) return models;
+        }
+      } catch {
+        if (signal?.aborted) return [];
+        // Older CLI versions can reject this newer control request.
+      }
     }
 
     // Some CLI versions implement the V2 control request but only return the
@@ -759,10 +766,11 @@ async function listCodebuddyModelsViaSession({ createSessionFn, pathToCodebuddyC
       );
       if (simpleResult.type === "aborted") return [];
       if (Array.isArray(simpleResult.models) && simpleResult.models.length > 0) {
-        return mapCodebuddyModels(simpleResult.models);
+        const models = mapCodebuddyModels(simpleResult.models);
+        if (models.length) return models;
       }
     }
-    return [];
+    return null;
   } catch {
     return signal?.aborted ? [] : null;
   } finally {

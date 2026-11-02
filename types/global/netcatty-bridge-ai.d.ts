@@ -24,6 +24,7 @@ declare global {
       version: string;
       available: boolean;
       installed?: boolean;
+      /** For CodeBuddy this indicates detected credentials, not verified authentication. */
       authenticated?: boolean;
       authSource?: string | null;
       sdkBackend?: string;

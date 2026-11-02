@@ -363,6 +363,7 @@ export interface DiscoveredAgent {
   /** Absolute resolved CLI path (preferred over `path`). */
   binPath?: string;
   installed?: boolean;
+  /** CodeBuddy discovery only detects configured credentials; it does not validate them. */
   authenticated?: boolean;
   authSource?: string | null;
 }

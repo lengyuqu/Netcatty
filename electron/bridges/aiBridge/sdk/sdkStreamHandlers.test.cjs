@@ -1455,8 +1455,8 @@ test("resolveSdkBackendBinPath resolves Windows CodeBuddy shim to the package JS
   );
 });
 
-test("resolveSdkBackendBinPath falls back to bundled CLI when Windows CodeBuddy shim is unresolvable", () => {
-  const out = resolveSdkBackendBinPath({
+test("resolveSdkBackendBinPath reports an unresolvable Windows CodeBuddy shim", () => {
+  assert.throws(() => resolveSdkBackendBinPath({
     backendKey: "codebuddy",
     shellEnv: { Path: "C:\\Users\\me\\AppData\\Roaming\\npm" },
     env: {},
@@ -1464,8 +1464,17 @@ test("resolveSdkBackendBinPath falls back to bundled CLI when Windows CodeBuddy 
     normalizeCliPathForPlatform: () => null,
     realpath: (p) => p,
     resolveCodebuddyExecutableForSdk: () => null,
-  });
-  assert.equal(out, undefined);
+  }), /Cannot resolve CodeBuddy CLI entry from: .*codebuddy\.cmd/);
+});
+
+test("resolveSdkBackendBinPath reports an unresolvable configured CodeBuddy shim", () => {
+  assert.throws(() => resolveSdkBackendBinPath({
+    backendKey: "codebuddy",
+    configuredCommand: "C:\\custom\\codebuddy.cmd",
+    normalizeCliPathForPlatform: (p) => p,
+    realpath: (p) => p,
+    resolveCodebuddyExecutableForSdk: () => null,
+  }), /Cannot resolve CodeBuddy CLI entry from: .*codebuddy\.cmd/);
 });
 
 test("resolveSdkBackendBinPath keeps non-CodeBuddy SDK path normalization", () => {

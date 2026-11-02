@@ -147,7 +147,7 @@ test("getOrCreateSession closes stale session when options change", async () => 
   );
 });
 
-test("runTurn closes a session when initial send fails before fallback", async () => {
+test("runTurn closes a session and does not replay an uncertain send", async () => {
   const session = fakeSession([], { sessionId: "failed-connect-session" });
   session.send = async () => {
     throw new Error("connect failed");
@@ -169,10 +169,11 @@ test("runTurn closes a session when initial send fails before fallback", async (
     sessionOptions: {},
   });
 
-  assert.equal(result, null);
+  assert.deepEqual(result, { sessionId: "failed-connect-session", usedV2: true });
   assert.equal(session.closed, true);
   assert.equal(mgr.sessions.has("failed-connect-key"), false);
-  assert.deepEqual(events, []);
+  assert.equal(events.length, 1);
+  assert.match(events[0].m, /connect failed.*Delivery may have occurred/);
 });
 
 test("runTurn closes and evicts a session when response streaming fails", async () => {

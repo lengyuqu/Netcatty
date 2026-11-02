@@ -753,8 +753,7 @@ function resolveCodebuddyExecutableForSdk(codebuddyExecutablePath, platform = pr
     }
   }
 
-  // Could not locate the JS entry — return null so the caller falls back to the
-  // SDK's bundled CLI rather than handing `node` an unrunnable shim.
+  // Could not locate the JS entry; do not hand `node` an unrunnable shim.
   return ext === ".cmd" || ext === ".bat" || ext === ".ps1" ? null : normalized;
 }
 
